@@ -278,7 +278,7 @@ If (A_GuiEvent = "N") {
 	; sleep 1000
 	; }
 	If (Msg = 0X70a) { ; EN_OBJECTPOSITIONS
-	msgbox object position
+	; msgbox object position
 	}
 	Else If (Msg = 0x0702) { ; EN_SELCHANGE
 
