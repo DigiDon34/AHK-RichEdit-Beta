@@ -232,9 +232,12 @@ global
 
 TestLink:
 ;TO BE TESTED FURTHER
-RE2.SetText("{\rtf1{\field{\*\fldinst{ HYPERLINK "" http://www.msn.com""}}{\fldrslt{ MSN} }}}", ["SELECTION"])
-RE2.SetText("{\rtf1\par}", ["SELECTION"])
-RE2.SetText("https://msdn.microsoft.com/en-us/library/windows/desktop/bb787954(v=vs.85).aspx", ["SELECTION"])
+RE2.SetText("{\rtf1{\field{\*\fldinst{ HYPERLINK "" http://www.msn.com ""}}{\fldrslt{ MSN} }}}", ["SELECTION"])
+; RE2.SetText("{\rtf1\par}", ["SELECTION"])
+; RE2.SetText("https://msdn.microsoft.com/en-us/library/windows/desktop/bb787954(v=vs.85).aspx", ["SELECTION"])
+; RE2.SetText("{\rtf1{\colortbl `;\red0\green0\blue238;}{\field{\*\fldinst{HYPERLINK http://www.autohotkey.com }{\fldrslt{\cf0AutoHotkey}}}}", ["Selection"])
+; RE2.SetEventMask(["SELCHANGE","LINK","DROPFILES","OBJECTPOSITIONS"])
+; RE2.AutoURL(1)
 return
 
 ; ======================================================================================================================
@@ -328,7 +331,7 @@ return
 
 TooltipAndRemove(P_tooltip,P_Time) {
 tooltip %P_tooltip%
-SetTimer( "RemoveToolTip", -%P_Time%)
+SetTimer( "RemoveToolTip", -P_Time)
 }
 
 SetTimer(P_Label,P_Time) {
