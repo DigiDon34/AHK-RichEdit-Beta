@@ -11,8 +11,92 @@ SetWinDelay, -1
 SetControlDelay, -1
 SendMode, Input
 RN_Create()
+IDM_TEST = 1337
+$WM_RBUTTONDOWN = 0x0204
+	$WM_RBUTTONUP = 0x0205
+; WindowProcNew := RegisterCallback("WindowProc", "")
+; msgbox % RE2.HWND
+; WindowProcOld := DllCall("SetWindowLong", "UInt", RE2.HWND, "Int", -4, "Int", WindowProcNew, "UInt")  ; Return value must be set to UInt vs. Int.
+; WindowProcNew := RegisterCallback("WindowProc", "")  ; "" to avoid fast-mode for subclassing.
+    ; , 4, IDM_TEST)  ; Must specify exact ParamCount when EventInfo parameter is present.
+; WindowProcNew := RegisterCallback("WindowProc", ""  ; "" to avoid fast-mode for subclassing.
+    ; , 4, IDM_TEST)  ; Must specify exact ParamCount when EventInfo parameter is present.
+; WindowProcOld := DllCall("SetWindowLong", UInt, RE2.HWND, Int, -4  ; -4 is GWL_WNDPROC
+    ; , Int, WindowProcNew, UInt)  ; Return value must be set to UInt vs. Int.
+	; 64-bit scripts must call SetWindowLongPtr instead of SetWindowLong:
+	; MyNum:=123
+SetWindowLong := A_PtrSize=8 ? "SetWindowLongPtr" : "SetWindowLong"
+WindowProcNew := RegisterCallback("WindowProc", ""  ; Specify "" to avoid fast-mode for subclassing.
+    , 4, IDM_TEST)  ; Must specify exact ParamCount when EventInfo parameter is present.
+WindowProcOld := DllCall(SetWindowLong, Ptr, RE2.HWND, Int, -4  ; -4 is GWL_WNDPROC
+    , Ptr, WindowProcNew, Ptr) ; Return value must be set to Ptr or UPtr vs. Int.
 return
 
+
+WindowProc(hwnd, uMsg, wParam, lParam)
+{
+	global
+    Critical
+	; msgbox uMsg %uMsg%
+	; if (lParam = IDM_TEST)
+	; if (hwnd=RE2.HWND)
+	; msgbox A_EventInfo %A_EventInfo% IDM_TEST %IDM_TEST%
+    ; if (hwnd=RE2.HWND)
+    if (uMsg = $WM_RBUTTONUP && A_EventInfo=IDM_TEST)  ; WM_COMMAND := 0x111
+    {
+	donothing=
+      ; Menu, ContextMenu, Show
+    }
+    ; Otherwise (since above didn't return), pass all unhandled events to the original WindowProc.
+    return DllCall("CallWindowProc", Ptr, WindowProcOld, Ptr, hwnd, UInt, uMsg, Ptr, wParam, Ptr, lParam)
+}
+
+RichFileInsertFile:
+	SelectedFiles=
+	FileSelectFile, SelectedFiles, M3, %A_ScriptDir%  ; M3 = Multiselect existing files.
+	if SelectedFiles =
+		{
+		; MsgBox, The user pressed cancel.
+		return
+		}
+	CFiles:={}
+	Loop, parse, SelectedFiles, `n
+		{
+		If (A_Index=1) {
+			FilesDir:=A_LoopField
+			; msgbox % "FilesDir " FilesDir
+			continue
+			}
+		
+		CFilePath := FilesDir "\" A_LoopField
+		; msgbox CFilePath %CFilePath%
+		CFiles.Push(CFilePath)
+		
+		}
+		DropFiles("ahk_id " RE2.HWND, CFiles*)
+return
+
+
+
+
+DropFiles(window, files*)
+{
+  for k,v in files
+    memRequired+=StrLen(v)+1
+	; msgbox window %window%
+	; for k,v in files
+	; msgbox file %v%
+  hGlobal := DllCall("GlobalAlloc", "uint", 0x42, "ptr", memRequired+21)
+  dropfiles := DllCall("GlobalLock", "ptr", hGlobal)
+  NumPut(offset := 20, dropfiles+0, 0, "uint")
+  for k,v in files
+    StrPut(v, dropfiles+offset, "utf-8"), offset+=StrLen(v)+1
+  DllCall("GlobalUnlock", "ptr", hGlobal)
+  PostMessage, 0x233, hGlobal, 0,, %window%
+  ; msgbox ErrorLevel %ErrorLevel%
+  if ErrorLevel
+    DllCall("GlobalFree", "ptr", hGlobal)
+}
 
 RN_Create() {
 	RN_CreateMenuBar()
@@ -72,6 +156,10 @@ global
 	Menu, Zoom, Check, 100 `%
 	Menu, Zoom, Add, 75 `%, Zoom
 	Menu, Zoom, Add, 50 `%, Zoom
+	Menu, File, Add, Insert Link, RN_InsertLink
+	Menu, File, Add, Insert Object (simulate DD), RichFileInsertFile
+	Menu, File, Add, Insert Display Object, RNInsertObject
+	Menu, File, Add, &Insert Images, InsertImages
 	Menu, File, Add, &Test, TestLink
 	Menu, File, Add, &Open, FileOpen
 	Menu, File, Add, &Append, FileAppend
@@ -150,6 +238,18 @@ global
 	Menu, ContextMenu, Add, &View, :View
 }
 
+RN_InsertLink:
+InputBox, LinkHyperlink, , Enter Link Address,,,120
+if ErrorLevel
+	return
+if !(DefaultLabel:=RE2.GetSelText())
+	DefaultLabel:=LinkHyperlink
+InputBox, LinkLabel, , Enter Link Label,,,120,,,,, % DefaultLabel
+if ErrorLevel
+	return
+RE2.SetText("{\rtf1{\field{\*\fldinst{ HYPERLINK "" " LinkHyperlink " ""}}{\fldrslt{ " LinkLabel "} }}}", ["SELECTION"])
+return
+
 RN_CreateGui(P_GuiN) {
 global
 	; Main Gui -------------------------------------------------------------------------------------------------------------
@@ -217,7 +317,7 @@ global
 	GuiControlGet, RE, Pos, % RE2.HWND
 	RE2.SetBkgndColor(BackColor)
 	; RE2.SetEventMask(["SELCHANGE"])
-	RE2.SetEventMask(["SELCHANGE","LINK","DROPFILES","OBJECTPOSITIONS"])
+	RE2.SetEventMask(["SELCHANGE","LINK","DROPFILES","OBJECTPOSITIONS","MOUSEEVENTS"])
 	RE2.AutoURL(1)
 	Gui, Font
 	; The rest
@@ -230,15 +330,126 @@ global
 	GoSub, UpdateGui
 }
 
+InsertImages:
+	SelectedFiles=
+	FileSelectFile, SelectedFiles, M3, %A_ScriptDir%,,Images (*.png; *.jpg; *.jpeg; *.bmp)
+	if SelectedFiles =
+		{
+		; MsgBox, The user pressed cancel.
+		return
+		}
+	pToken	:= Gdip_Startup()
+	BackupClipboard:=ClipboardAll
+	Loop, parse, SelectedFiles, `n
+		{
+		If (A_Index=1) {
+			FilesDir:=A_Loopfield
+			continue
+			}
+		Lcl_FilePath:=FilesDir "\" A_Loopfield
+		pBitmap	:= Gdip_CreateBitmapFromFile(Lcl_FilePath)
+		Gdip_SetBitmapToClipboard(pBitmap)
+		Gdip_DisposeImage(pBitmap)
+		DllCall("DeleteObject", "Uint", hBitmap)
+		$bAcceptData:=1
+		; Send ^v
+		RE2.Paste()
+		$bAcceptData:=0
+		}
+	Gdip_Shutdown(pToken)
+	Clipboard:=BackupClipboard
+	BackupClipboard:=""
+Return
+
 TestLink:
 ;TO BE TESTED FURTHER
-RE2.SetText("{\rtf1{\field{\*\fldinst{ HYPERLINK "" http://www.msn.com ""}}{\fldrslt{ MSN} }}}", ["SELECTION"])
+; RE2.SetText("{\rtf1{\field{\*\fldinst{ HYPERLINK "" http://www.msn.com ""}}{\fldrslt{ MSN} }}}", ["SELECTION"])
 ; RE2.SetText("{\rtf1\par}", ["SELECTION"])
 ; RE2.SetText("https://msdn.microsoft.com/en-us/library/windows/desktop/bb787954(v=vs.85).aspx", ["SELECTION"])
 ; RE2.SetText("{\rtf1{\colortbl `;\red0\green0\blue238;}{\field{\*\fldinst{HYPERLINK http://www.autohotkey.com }{\fldrslt{\cf0AutoHotkey}}}}", ["Selection"])
 ; RE2.SetEventMask(["SELCHANGE","LINK","DROPFILES","OBJECTPOSITIONS"])
 ; RE2.AutoURL(1)
+Global $__g_pGRC_StreamFromVarCallback := RegisterCallback("__GCR_StreamFromVarCallback")
+Global $__g_pGRC_sStreamVar := RegisterCallback("__GCR_StreamFromVarCallback")
+; For Stream Callbacks :)
+Global $SF_TEXT = 0x1
+Global $SF_RTF = 0x2
+Global $SF_RTFNOOBJS = 0x3
+Global $SF_TEXTIZED = 0x4
+Global $SF_UNICODE = 0x0010
+Global $SF_USECODEPAGE = 0x20
+Global $SFF_PLAINRTF = 0x4000
+Global $SFF_SELECTION = 0x8000
+Global $EM_STREAMIN = 0x0449
+TestVar:="{\rtf1{\field{\*\fldinst{ HYPERLINK http://www.msn.com }}{\fldrslt{ MSN} }}}"
+_GUICtrlRichEdit_StreamFromVar(RE2.HWND,TestVar)
+RE2.SetText("{\rtf1{\par}", ["SELECTION"])
+RE2.SetText("{\rtf1{\field{\*\fldinst{ HYPERLINK http://www.msn.com }}{\fldrslt{ MSN} }}}", ["SELECTION"])
+RE2.SetText("{\rtf1{\par}", ["SELECTION"])
+RE2.SetText("{\rtf1{\field{\*\fldinst{ HYPERLINK "" http://www.msn.com ""}}{\fldrslt{ MSN } }}}", ["SELECTION"])
+RE2.SetText("{\rtf1{\par}", ["SELECTION"])
+; RE2.SetText("{\rtf1{\field{\*\fldinst{ HYPERLINK "" http://www.msn.com ""}}{\fldrslt{ MSN} }}}", ["SELECTION"])
+RE2.SetText("{\rtf1{\field{\*\fldinst{ HYPERLINK "" http://www.msn.com""}}{\fldrslt{ MSN} }}}", ["SELECTION"])
 return
+
+; #FUNCTION# ====================================================================================================================
+; Authors: DigiDon
+; Translated from AutoIt GuiRichEdit.au3 (Chris Haslam)
+; Modified ......:
+; ===============================================================================================================================
+
+
+_GUICtrlRichEdit_StreamFromVar($hWnd, $sVar) {
+global
+	Local $tEditStream 
+	VarSetCapacity($tEditStream,A_PtrSize+4+A_PtrSize)
+	NumPut($__g_pGRC_StreamFromVarCallback,$tEditStream,A_PtrSize+4,"Ptr")
+	$__g_pGRC_sStreamVar := $sVar
+	Local $s := SubStr($sVar, 1, 5)
+	Local $wParam 
+	$wParam := ($s == "{\rtf" Or $s == "{urtf") ? $SF_RTF : $SF_TEXT
+	$wParam := $wParam | $SFF_SELECTION
+	SendMessage, $EM_STREAMIN, $wParam, &$tEditStream, , % "ahk_id " . RE2.HWND
+	; Local $iError = DllStructGetData($tEditStream, "dwError")
+	Local $iError := NumGet($tEditStream, A_PtrSize, "Int")
+	If $iError <> 1
+		Return False ;Error 700
+	Return True
+}  ;==>_GUICtrlRichEdit_StreamFromVar
+
+; #INTERNAL_USE_ONLY# ===========================================================================================================
+; Name...........: __GCR_StreamFromVarCallback
+; Description ...: Callback function for streaming in from a variable
+; Syntax.........: __GCR_StreamFromVarCallback ( $iCookie, $pBuf, $iBufLen, $pQbytes )
+; Parameters ....: $iCookie - not used
+;                  $pBuf - pointer to a buffer in the control
+;                  $iBuflen - length of this buffer
+;                  $pQbytes - pointer to number of bytes set in buffer
+; Return values .: More bytes to "return"  - 0
+;                  All bytes have been "returned" - 1
+; Authors: DigiDon
+; Translated from AutoIt GuiRichEdit.au3 (Chris Haslam)
+; Modified ......:
+; Modified.......:
+; Remarks .......:
+; Related .......:
+; Link ..........: @@MsdnLink@@ EditStreamCallback Function
+; Example .......:
+; ===============================================================================================================================
+__GCR_StreamFromVarCallback($iCookie, $pBuf, $iBuflen, $pQbytes) {
+	global
+	Local $tQbytes
+	NumPut(0,$pQbytes+0,0,"Int")
+	Local $sCtl := SubStr($__g_pGRC_sStreamVar, - ($iBuflen - 1) + 1)
+	If ($sCtl = "")
+		Return 1
+    StrPut($sCtl, $pBuf, "CP0")
+	Len := StrPut(Text, "CP0")
+	Local $iLen := StrLen($sCtl)
+	NumPut($iLen,$pQbytes+0,0,"Int")
+	$__g_pGRC_sStreamVar := SubStr($__g_pGRC_sStreamVar, $iLen + 1)
+	Return 0
+}
 
 ; ======================================================================================================================
 ; End of auto-execute section
@@ -275,11 +486,22 @@ ShowSBHelp() {
 RE2MessageHandler:
 If (A_GuiEvent = "N") {
 		Msg := NumGet(A_EventInfo + 0, A_PtrSize * 2, "Int")
+		
+	if (Msg=1792)
+	return
 	; tooltip Msg %Msg%
 	; If (Msg = 0x0300) { ; EN_CHANGE
 	; tooltip EN_CHANGE
 	; sleep 1000
 	; }
+	
+	If (Msg = 0x0204) { ; WM_RBUTTONDOWN
+	msgbox button down
+	}
+	If (Msg = 0x0205) { ; WM_RBUTTONUP
+	msgbox button up
+	; msgbox object position
+	}
 	If (Msg = 0X70a) { ; EN_OBJECTPOSITIONS
 	; msgbox object position
 	}
@@ -291,7 +513,11 @@ If (A_GuiEvent = "N") {
 	Else If (Msg = 0x070B) { ; EN_LINK ;****ADDED DIGIDON
 	   
 		  Message:=NumGet(A_EventInfo + 0, A_PtrSize * 3, "Int")
-		  ; If (Message = 0x0202) { ; WM_LBUTTONUP
+		  ; tooltip Message %Message%
+		  If (Message = 0x0205) { ; WM_LBUTTONUP
+		  ; msgbox up
+		
+		  }
 		  ; If (Message = 0x0202 or Message = 32 or Message = 512)
 		  ; donothing=
 		  ; else
@@ -408,12 +634,13 @@ If (A_GuiWidth != GuiW || A_GuiHeight != GuiH) {
 }
 Return
 ; ----------------------------------------------------------------------------------------------------------------------
-GuiContextMenu:
-MouseGetPos, , , , HControl, 2
-WinGetClass, Class, ahk_id %HControl%
-If (Class = RichEdit.Class)
-   Menu, ContextMenu, Show
-Return
+; GuiContextMenu:
+; msgbox contextmenu
+; MouseGetPos, , , , HControl, 2
+; WinGetClass, Class, ahk_id %HControl%
+; If (Class = RichEdit.Class)
+   ; Menu, ContextMenu, Show
+; Return
 ; ======================================================================================================================
 ; Text operations
 ; ======================================================================================================================
@@ -448,6 +675,12 @@ If (File := RichEditDlgs.FileDlg(RE2, "O")) {
 RE2.SetModified()
 GuiControl, Focus, % RE2.HWND
 Return
+
+RNInsertObject:
+FileSelectFile, SelectedFile, 3, %A_ScriptDir%
+msgbox % "SelectedFile " SelectedFile
+RN_InsertObject(RE2.HWND, SelectedFile)
+return
 ; ----------------------------------------------------------------------------------------------------------------------
 FileClose:
 If (Open_File) {

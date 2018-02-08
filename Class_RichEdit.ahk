@@ -106,6 +106,7 @@ Class RichEdit {
       If (This.Base.SubclassCB = 0)
          This.Base.SubclassCB := RegisterCallback("RichEdit.SubclassProc")
       DllCall("Comctl32.dll\SetWindowSubclass", "Ptr", HWND, "Ptr", This.Base.SubclassCB, "Ptr", HWND, "Ptr", 0)
+
       This.GuiName := GuiName
       This.GuiHwnd := GuiHwnd
       This.HWND := HWND
@@ -273,6 +274,12 @@ Class RichEdit {
    SubclassProc(M, W, L, I, R) { ; RichEdit subclassproc
       ; Left out first parameter HWND, will be found in "This" when called by system
       ; See -> http://msdn.microsoft.com/en-us/library/bb776774%28VS.85%29.aspx
+	  ; tooltip Message %Message%
+	  If (Message = 0x0205) { ; WM_LBUTTONUP
+		  msgbox up
+		 
+		
+		  }
       If (M = 0x87) ; WM_GETDLGCODE
          Return 4   ; DLGC_WANTALLKEYS
       Return DllCall("Comctl32.dll\DefSubclassProc", "Ptr", This, "UInt", M, "Ptr", W, "Ptr", L)
@@ -514,6 +521,15 @@ Class RichEdit {
       VarSetCapacity(CR, 8, 0)
       SendMessage, 0x0434, 0, &CR, , % "ahk_id " . This.HWND
       Return {S: NumGet(CR, 0, "Int"), E: NumGet(CR, 4, "Int")}
+   }
+   ; -------------------------------------------------------------------------------------------------------------------
+   IsSel() { ; DigiDon: check if Selection 
+   ;Based on GetSel; Compare S and E
+      ; EM_EXGETSEL = 0x0434
+      VarSetCapacity(CR, 8, 0)
+      SendMessage, 0x0434, 0, &CR, , % "ahk_id " . This.HWND
+      if (NumGet(CR, 0, "Int")!=NumGet(CR, 4, "Int"))
+	  return 1
    }
    ; -------------------------------------------------------------------------------------------------------------------
    GetText() { ; Gets the whole content of the control as plain text.
